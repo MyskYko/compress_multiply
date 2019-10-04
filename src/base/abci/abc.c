@@ -12406,6 +12406,7 @@ int Abc_CommandGen( Abc_Frame_t * pAbc, int argc, char ** argv )
     int fSorter;
     int fMesh;
     int fMulti;
+    int fCompressMulti;
     int fBooth;
     int fFpga;
     int fOneHot;
@@ -12417,6 +12418,7 @@ int Abc_CommandGen( Abc_Frame_t * pAbc, int argc, char ** argv )
     extern void Abc_GenSorter( char * pFileName, int nVars );
     extern void Abc_GenMesh( char * pFileName, int nVars );
     extern void Abc_GenMulti( char * pFileName, int nVars );
+    extern void Abc_GenMulti4to2Compressor( char * pFileName, int nVars );
     extern void Abc_GenBooth( char * pFileName, int nVars );
     extern void Abc_GenFpga( char * pFileName, int nLutSize, int nLuts, int nVars );
     extern void Abc_GenOneHot( char * pFileName, int nVars );
@@ -12431,13 +12433,14 @@ int Abc_CommandGen( Abc_Frame_t * pAbc, int argc, char ** argv )
     fSorter = 0;
     fMesh = 0;
     fMulti = 0;
+    fCompressMulti = 0;
     fBooth = 0;
     fFpga = 0;
     fOneHot = 0;
     fRandom = 0;
     fVerbose = 0;
     Extra_UtilGetoptReset();
-    while ( ( c = Extra_UtilGetopt( argc, argv, "NAKLatsembfnrvh" ) ) != EOF )
+    while ( ( c = Extra_UtilGetopt( argc, argv, "NAKLatsembfnrvhp" ) ) != EOF )
     {
         switch ( c )
         {
@@ -12500,6 +12503,9 @@ int Abc_CommandGen( Abc_Frame_t * pAbc, int argc, char ** argv )
         case 'm':
             fMulti ^= 1;
             break;
+        case 'p':
+            fCompressMulti ^= 1;
+            break;
         case 'b':
             fBooth ^= 1;
             break;
@@ -12541,6 +12547,8 @@ int Abc_CommandGen( Abc_Frame_t * pAbc, int argc, char ** argv )
         Abc_GenMesh( FileName, nVars );
     else if ( fMulti )
         Abc_GenMulti( FileName, nVars );
+    else if ( fCompressMulti )
+        Abc_GenMulti4to2Compressor( FileName, nVars );
     else if ( fBooth )
         Abc_GenBooth( FileName, nVars );
     else if ( fFpga )
