@@ -1176,9 +1176,46 @@ void Abc_Write4to2Compressor( FILE * pFile )
     fprintf( pFile, ".end\n" ); 
     fprintf( pFile, "\n" ); 
 }
+void Abc_WriteHalfAdder( FILE * pFile )
+{
+    fprintf( pFile, ".model HA\n" );
+    fprintf( pFile, ".inputs a b\n" ); 
+    fprintf( pFile, ".outputs s cout\n" ); 
+    fprintf( pFile, ".names a b and1\n" ); 
+    fprintf( pFile, "11 1\n" ); 
+    fprintf( pFile, ".names a b and1_\n" ); 
+    fprintf( pFile, "00 1\n" ); 
+    fprintf( pFile, ".names and1 and1_ xor\n" ); 
+    fprintf( pFile, "00 1\n" ); 
+    fprintf( pFile, ".names xor s\n" ); 
+    fprintf( pFile, "1 1\n" ); 
+    fprintf( pFile, ".names and1 cout\n" ); 
+    fprintf( pFile, "1 1\n" ); 
+    fprintf( pFile, ".end\n" ); 
+    fprintf( pFile, "\n" ); 
+}
+void Abc_WriteExactCompressors( FILE * pFile )
+{
+  fprintf( pFile, ".model ExactCompressor5\n" );
+  fprintf( pFile, ".inputs x1 x2 x3 x4 cin\n" ); 
+  fprintf( pFile, ".outputs s carry cout\n" );
+  fprintf( pFile, ".names c\n" );   
+  fprintf( pFile, ".subckt FA a=x1 b=x2 cin=x3 s=s_ cout=cout\n" ); 
+  fprintf( pFile, ".subckt FA a=s_ b=x4 cin=c s=s cout=carry\n" ); 
+  fprintf( pFile, ".end\n" ); 
+  fprintf( pFile, "\n" ); 
+  fprintf( pFile, ".model ExactCompressor4\n" );
+  fprintf( pFile, ".inputs x1 x2 x3 cin\n" ); 
+  fprintf( pFile, ".outputs s carry cout\n" );
+  fprintf( pFile, ".names c\n" );   
+  fprintf( pFile, ".subckt FA a=x1 b=x2 cin=x3 s=s_ cout=cout\n" ); 
+  fprintf( pFile, ".subckt HA a=s_ b=cin s=s cout=carry\n" ); 
+  fprintf( pFile, ".end\n" ); 
+  fprintf( pFile, "\n" ); 
+}
 void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 {
-    int i, k, nDigits = Abc_Base10Log( nVars ), nDigits2 = Abc_Base10Log( 2*nVars );
+    int i, j, k, kk , nDigits = Abc_Base10Log( nVars ), nDigits2 = Abc_Base10Log( 2*nVars );
 
     assert( nVars > 0 );
     fprintf( pFile, ".model Multi%d\n", nVars );
@@ -1195,19 +1232,160 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
         fprintf( pFile, " m%0*d", nDigits2, i );
     fprintf( pFile, "\n" );
 
+    int *vLength = ABC_CALLOC( int, 2*nVars );
     for ( k = 0; k < nVars; k++ )
-    {
-        for ( i = 0; i < 2 * nVars; i++ )
-            if ( i >= k && i < k + nVars )
-                fprintf( pFile, ".names b%0*d a%0*d y%0*d_%0*d\n11 1\n", nDigits, k, nDigits, i-k, nDigits, k, nDigits2, i );
-            else
-                fprintf( pFile, ".names y%0*d_%0*d\n", nDigits, k, nDigits2, i );
-    }
-
+      for ( i = 0; i < 2 * nVars; i++ )
+	if ( i >= k && i < k + nVars )
+	  fprintf( pFile, ".names b%0*d a%0*d s%d_%d_%d\n11 1\n", nDigits, k, nDigits, i-k, 0, vLength[i]++, i );
+    
+    int nVarsTmp = nVars/2 + nVars%2;
+    int nStage = 0;
+    while ( nVarsTmp > 1 )
+      {
+	int *vLengthNew = ABC_CALLOC( int, 2*nVars );
+	int nCin = 0;
+	int nCout = 0;
+	for ( i = 0; i < 2 * nVars; i++ )
+	  {
+	    int n4to2 = 0;
+	    int nFA = 0;
+	    int nHA = 0;
+	    if ( i <= nVars )
+	      {
+		if ( vLength[i] + vLengthNew[i] > nVarsTmp )
+		  {
+		    n4to2 =  (vLength[i] + vLengthNew[i] - nVarsTmp) / 3;
+		    nFA   = ((vLength[i] + vLengthNew[i] - nVarsTmp) % 3 == 2);
+		    nHA   = ((vLength[i] + vLengthNew[i] - nVarsTmp) % 3 == 1);
+		  }
+		k = 0;
+		for ( j = 0; j < n4to2; j++ )
+		  {
+		    fprintf( pFile, ".subckt Compressor" );
+		    for ( kk = 1; kk <= 4; kk++ )
+		      fprintf( pFile, " x%d=s%d_%d_%d", kk, nStage, k++, i );
+		    fprintf( pFile, " s=s%d_%d_%d", nStage+1, vLengthNew[i]++, i );
+		    fprintf( pFile, " c=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
+		    fprintf( pFile, "\n" );
+		  }
+		for ( j = 0; j < nFA; j++ )
+		  {
+		    fprintf( pFile, ".subckt FA" );
+		    fprintf( pFile, " a=s%d_%d_%d", nStage, k++, i );
+		    fprintf( pFile, " b=s%d_%d_%d", nStage, k++, i );
+		    fprintf( pFile, " cin=s%d_%d_%d", nStage, k++, i );
+		    fprintf( pFile, " s=s%d_%d_%d", nStage+1, vLengthNew[i]++, i );
+		    fprintf( pFile, " cout=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
+		    fprintf( pFile, "\n" );
+		}
+		for ( j = 0; j < nHA; j++ )
+		  {
+		    fprintf( pFile, ".subckt HA" );
+		    fprintf( pFile, " a=s%d_%d_%d", nStage, k++, i );
+		    fprintf( pFile, " b=s%d_%d_%d", nStage, k++, i );
+		    fprintf( pFile, " s=s%d_%d_%d", nStage+1, vLengthNew[i]++, i );
+		    fprintf( pFile, " cout=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
+		    fprintf( pFile, "\n" );
+		  }
+		while ( k < vLength[i] )
+		  {
+		    fprintf( pFile, ".names s%d_%d_%d s%d_%d_%d\n", nStage, k++, i, nStage+1, vLengthNew[i]++, i ); 
+		    fprintf( pFile, "1 1\n" );
+		  }
+		assert( vLengthNew[i] <= nVarsTmp );
+	      }
+	    else //if ( i > nVars )
+	      {
+		if ( vLength[i] + vLengthNew[i] > nVarsTmp )
+		  {
+		    n4to2 =  (vLength[i] + vLengthNew[i] - nVarsTmp) / 3;
+		    nFA   = ((vLength[i] + vLengthNew[i] - nVarsTmp) % 3 == 2);
+		    nHA   = ((vLength[i] + vLengthNew[i] - nVarsTmp) % 3 == 1);
+		  }
+		if ( i == nVars + 1 )
+		  {
+		    nCin = n4to2 + nFA + nHA;
+		    for ( k = 0; k < nCin; k++ )
+		      fprintf( pFile, ".names c%d_%d_%d\n", nStage, k, nVars );
+		  }
+		k = 0;
+		int nCinUsed = 0;
+		for ( j = 0; j < n4to2; j++ )
+		  {
+		    fprintf( pFile, ".subckt ExactCompressor5" );
+		    for ( kk = 1; kk <= 4; kk++ )
+		      fprintf( pFile, " x%d=s%d_%d_%d", kk, nStage, k++, i );
+		    assert( nCinUsed < nCin );
+		    fprintf( pFile, " cin=c%d_%d_%d", nStage, nCinUsed++, i-1 );
+		    fprintf( pFile, " s=s%d_%d_%d", nStage+1, vLengthNew[i]++, i );
+		    fprintf( pFile, " carry=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
+		    fprintf( pFile, " cout=c%d_%d_%d", nStage, nCout++, i );
+		    fprintf( pFile, "\n" );
+		  }
+		for ( j = 0; j < nFA; j++ )
+		  {
+		    fprintf( pFile, ".subckt ExactCompressor4" );
+		    for ( kk = 1; kk <= 3; kk++ )
+		      fprintf( pFile, " x%d=s%d_%d_%d", kk, nStage, k++, i );
+		    assert( nCinUsed < nCin );
+		    fprintf( pFile, " cin=c%d_%d_%d", nStage, nCinUsed++, i-1 );
+		    fprintf( pFile, " s=s%d_%d_%d", nStage+1, vLengthNew[i]++, i );
+		    fprintf( pFile, " carry=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
+		    fprintf( pFile, " cout=c%d_%d_%d", nStage, nCout++, i );
+		    fprintf( pFile, "\n" );
+		  }
+		for ( j = 0; j < nHA; j++ )
+		  {
+		    fprintf( pFile, ".subckt FA" );
+		    fprintf( pFile, " a=s%d_%d_%d", nStage, k++, i );
+		    fprintf( pFile, " b=s%d_%d_%d", nStage, k++, i );
+		    assert( nCinUsed < nCin );
+		    fprintf( pFile, " cin=c%d_%d_%d", nStage, nCinUsed++, i-1 );
+		    fprintf( pFile, " s=s%d_%d_%d", nStage+1, vLengthNew[i]++, i );
+		    fprintf( pFile, " cout=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
+		    fprintf( pFile, "\n" );
+		  }
+		assert( nCin == nCinUsed );
+		while ( k < vLength[i] )
+		  {
+		    fprintf( pFile, ".names s%d_%d_%d s%d_%d_%d\n", nStage, k++, i, nStage+1, vLengthNew[i]++, i ); 
+		    fprintf( pFile, "1 1\n" );
+		  }
+		assert( vLengthNew[i] <= nVarsTmp );
+		nCin = nCout;
+		nCout = 0;
+	      }
+	  }
+	ABC_FREE( vLength );
+	vLength = vLengthNew;
+	nVarsTmp = nVarsTmp/2 + nVarsTmp%2;
+	nStage++;
+      }
+    // RCA
+    fprintf( pFile, ".subckt ADD%d", 2*nVars );
+    for ( i = 0; i < 2*nVars; i++ )
+      if ( vLength[i] > 0 )
+	fprintf( pFile, " a%0*d=s%d_%d_%d", nDigits2, i, nStage, 0, i );
+    for ( i = 0; i < 2*nVars; i++ )
+      if ( vLength[i] > 1 )
+	fprintf( pFile, " b%0*d=s%d_%d_%d", nDigits2, i, nStage, 1, i );
+    for ( i = 0; i <= 2*nVars; i++ )
+      fprintf( pFile, " s%0*d=s%d_%d_%d", nDigits2, i, nStage+1, 0, i );
+    fprintf( pFile, "\n" );
+    nStage++;
+    for ( i = 0; i < 2 * nVars; i++ )
+      {
+	fprintf( pFile, ".names s%d_%d_%d", nStage, 0, i ); 
+        fprintf( pFile, " m%0*d\n", nDigits2, i );
+	fprintf( pFile, "1 1\n" );
+      }
     fprintf( pFile, ".end\n" ); 
     fprintf( pFile, "\n" );
     Abc_Write4to2Compressor( pFile );
-}
+    Abc_WriteExactCompressors( pFile );
+    Abc_WriteHalfAdder( pFile );
+    Abc_WriteAdder( pFile, nVars * 2 ); // This also generates FA
+  }
 void Abc_GenMulti4to2Compressor( char * pFileName, int nVars )
 {
     FILE * pFile;
