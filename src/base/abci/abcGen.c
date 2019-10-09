@@ -1266,7 +1266,7 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 	    /* The number of full-adders for this column. */
 	    int nHA = 0;
 	    /* The number of half-adders for this column. */
-	    if ( i <= nVars )
+	    if ( i <= nVars && 0 )
 	      { /* Approximate part of compression */
 		if ( vLength[i] + vLengthNew[i] > nVarsTmp )
 		  {
@@ -1330,7 +1330,7 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 		    nFA   = ((vLength[i] + vLengthNew[i] - nVarsTmp) % 3 == 2);
 		    nHA   = ((vLength[i] + vLengthNew[i] - nVarsTmp) % 3 == 1);
 		  }
-		if ( i == nVars + 1 )
+		if ( i == nVars + 1 && 0 )
 		  { /* The first column in the exact part of compression has empty cin (=0) */
 		    nCin = n4to2 + nFA + nHA;
 		    for ( k = 0; k < nCin; k++ )
@@ -1345,7 +1345,7 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 		    fprintf( pFile, ".subckt ExactCompressor5" );
 		    for ( kk = 1; kk <= 4; kk++ )
 		      fprintf( pFile, " x%d=s%d_%d_%d", kk, nStage, k++, i );
-		    assert( nCinUsed < nCin );
+		    //assert( nCinUsed < nCin );
 		    fprintf( pFile, " cin=c%d_%d_%d", nStage, nCinUsed++, i-1 );
 		    fprintf( pFile, " s=s%d_%d_%d", nStage+1, vLengthNew[i]++, i );
 		    fprintf( pFile, " carry=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
@@ -1357,7 +1357,7 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 		    fprintf( pFile, ".subckt ExactCompressor4" );
 		    for ( kk = 1; kk <= 3; kk++ )
 		      fprintf( pFile, " x%d=s%d_%d_%d", kk, nStage, k++, i );
-		    assert( nCinUsed < nCin );
+		    //assert( nCinUsed < nCin );
 		    fprintf( pFile, " cin=c%d_%d_%d", nStage, nCinUsed++, i-1 );
 		    fprintf( pFile, " s=s%d_%d_%d", nStage+1, vLengthNew[i]++, i );
 		    fprintf( pFile, " carry=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
@@ -1369,13 +1369,13 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 		    fprintf( pFile, ".subckt FA" );
 		    fprintf( pFile, " a=s%d_%d_%d", nStage, k++, i );
 		    fprintf( pFile, " b=s%d_%d_%d", nStage, k++, i );
-		    assert( nCinUsed < nCin );
+		    //assert( nCinUsed < nCin );
 		    fprintf( pFile, " cin=c%d_%d_%d", nStage, nCinUsed++, i-1 );
 		    fprintf( pFile, " s=s%d_%d_%d", nStage+1, vLengthNew[i]++, i );
 		    fprintf( pFile, " cout=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
 		    fprintf( pFile, "\n" );
 		  }
-		assert( nCin == nCinUsed );
+		//assert( nCin == nCinUsed );
 		/* Check all cins were used */
 		while ( k < vLength[i] )
 		  { /* If some elements remain, pass them directly to the next stage */
