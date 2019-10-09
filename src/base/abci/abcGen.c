@@ -1215,51 +1215,75 @@ void Abc_WriteExactCompressors( FILE * pFile )
 void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 {
     int i, j, k, kk , nDigits = Abc_Base10Log( nVars ), nDigits2 = Abc_Base10Log( 2*nVars );
-
     assert( nVars > 0 );
-    fprintf( pFile, ".model Multi%d\n", nVars );
 
+    
+    // Circuit declaration: name, inputs (vector a and b), and outputs (vector m)
+    fprintf( pFile, ".model Multi%d\n", nVars );
     fprintf( pFile, ".inputs" );
     for ( i = 0; i < nVars; i++ )
         fprintf( pFile, " a%0*d", nDigits, i );
     for ( i = 0; i < nVars; i++ )
         fprintf( pFile, " b%0*d", nDigits, i );
     fprintf( pFile, "\n" );
-
     fprintf( pFile, ".outputs" );
     for ( i = 0; i < 2*nVars; i++ )
         fprintf( pFile, " m%0*d", nDigits2, i );
     fprintf( pFile, "\n" );
 
+    
+    // Generate partial products
     int *vLength = ABC_CALLOC( int, 2*nVars );
+    /* This array keeps the current number of elements in each column.
+       Initially it is the number of partial products in each column.
+       For example of 8x8 multiplier at the first stage, it will be
+       {1, 2, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 2, 1, 0}. */
     for ( k = 0; k < nVars; k++ )
       for ( i = 0; i < 2 * nVars; i++ )
 	if ( i >= k && i < k + nVars )
 	  fprintf( pFile, ".names b%0*d a%0*d s%d_%d_%d\n11 1\n", nDigits, k, nDigits, i-k, 0, vLength[i]++, i );
+
     
+    // Iterative compression
     int nVarsTmp = nVars/2 + nVars%2;
+    /* This number is the maximum number of elements in a column in the next stage. */
     int nStage = 0;
+    /* The current stage. This will be Increased by 1 for each iteration. */
     while ( nVarsTmp > 1 )
       {
 	int *vLengthNew = ABC_CALLOC( int, 2*nVars );
+	/* This array will keep the number of elements in each column in the next stage.
+	   It will replace int *vLength after the next stage is created. */
 	int nCin = 0;
+	/* The number of cin from the previous column. This is used for the exact part of compression */
 	int nCout = 0;
+	/* The number of cout to the next column. This is used for the exact part of compression */
 	for ( i = 0; i < 2 * nVars; i++ )
-	  {
+	  { /* for each column i */
 	    int n4to2 = 0;
+	    /* The number of 4-to-2-compressors for this column. */
 	    int nFA = 0;
+	    /* The number of full-adders for this column. */
 	    int nHA = 0;
+	    /* The number of half-adders for this column. */
 	    if ( i <= nVars )
-	      {
+	      { /* Approximate part of compression */
 		if ( vLength[i] + vLengthNew[i] > nVarsTmp )
 		  {
+		    /* If (the number of elements in the column + the number of carries from the previous column)
+		       exceeds the number of maximum elements in the next column,
+		       we have to place compressor or adder according to the excessed number.
+		       For every 3 excessed elements, we will put a 4-to-2-compressor.
+		       After that, if 2 elements remain, we will put a full adder.
+		       Else if 1 elements remain, we will put a half adder. */
 		    n4to2 =  (vLength[i] + vLengthNew[i] - nVarsTmp) / 3;
 		    nFA   = ((vLength[i] + vLengthNew[i] - nVarsTmp) % 3 == 2);
 		    nHA   = ((vLength[i] + vLengthNew[i] - nVarsTmp) % 3 == 1);
 		  }
 		k = 0;
+		/* This k represents the index of the element which has already been propagated to the next stage */
 		for ( j = 0; j < n4to2; j++ )
-		  {
+		  { /* Place 4-to-2-compressors */
 		    fprintf( pFile, ".subckt Compressor" );
 		    for ( kk = 1; kk <= 4; kk++ )
 		      fprintf( pFile, " x%d=s%d_%d_%d", kk, nStage, k++, i );
@@ -1267,8 +1291,8 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 		    fprintf( pFile, " c=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
 		    fprintf( pFile, "\n" );
 		  }
-		for ( j = 0; j < nFA; j++ )
-		  {
+		if( nFA )
+		  { /* Place a full-adder if necessary */
 		    fprintf( pFile, ".subckt FA" );
 		    fprintf( pFile, " a=s%d_%d_%d", nStage, k++, i );
 		    fprintf( pFile, " b=s%d_%d_%d", nStage, k++, i );
@@ -1277,8 +1301,8 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 		    fprintf( pFile, " cout=s%d_%d_%d", nStage+1, vLengthNew[i+1]++, i+1 );
 		    fprintf( pFile, "\n" );
 		}
-		for ( j = 0; j < nHA; j++ )
-		  {
+		if ( nHA )
+		  { /* Place a half-adder if necessary */
 		    fprintf( pFile, ".subckt HA" );
 		    fprintf( pFile, " a=s%d_%d_%d", nStage, k++, i );
 		    fprintf( pFile, " b=s%d_%d_%d", nStage, k++, i );
@@ -1287,30 +1311,37 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 		    fprintf( pFile, "\n" );
 		  }
 		while ( k < vLength[i] )
-		  {
+		  { /* If some elements remain, pass them directly to the next stage */
 		    fprintf( pFile, ".names s%d_%d_%d s%d_%d_%d\n", nStage, k++, i, nStage+1, vLengthNew[i]++, i ); 
 		    fprintf( pFile, "1 1\n" );
 		  }
 		assert( vLengthNew[i] <= nVarsTmp );
+		/* The number of elements must be less than the defined maximum number */
 	      }
 	    else //if ( i > nVars )
-	      {
+	      { /* Exact part of compression */
 		if ( vLength[i] + vLengthNew[i] > nVarsTmp )
 		  {
+		    /* The same as above.
+		       Please note that because of exact computation with cin and cout,
+		       4-to-2-compressor will be treated as 5-to-3 compressor,
+		       full-adder as 4-to-3 compressor, and half-adder as full-adder in this exact part. */
 		    n4to2 =  (vLength[i] + vLengthNew[i] - nVarsTmp) / 3;
 		    nFA   = ((vLength[i] + vLengthNew[i] - nVarsTmp) % 3 == 2);
 		    nHA   = ((vLength[i] + vLengthNew[i] - nVarsTmp) % 3 == 1);
 		  }
 		if ( i == nVars + 1 )
-		  {
+		  { /* The first column in the exact part of compression has empty cin (=0) */
 		    nCin = n4to2 + nFA + nHA;
 		    for ( k = 0; k < nCin; k++ )
 		      fprintf( pFile, ".names c%d_%d_%d\n", nStage, k, nVars );
 		  }
 		k = 0;
+		/* This k represents the index of the element which has already been propagated to the next stage */
 		int nCinUsed = 0;
+		/* This represents how many cins have been used. For debug. */
 		for ( j = 0; j < n4to2; j++ )
-		  {
+		  { /* Place 5-to-3-compressors including cin and cout*/
 		    fprintf( pFile, ".subckt ExactCompressor5" );
 		    for ( kk = 1; kk <= 4; kk++ )
 		      fprintf( pFile, " x%d=s%d_%d_%d", kk, nStage, k++, i );
@@ -1321,8 +1352,8 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 		    fprintf( pFile, " cout=c%d_%d_%d", nStage, nCout++, i );
 		    fprintf( pFile, "\n" );
 		  }
-		for ( j = 0; j < nFA; j++ )
-		  {
+		if ( nFA )
+		  { /* Place a 4-to-3-compressors including cin and cout*/
 		    fprintf( pFile, ".subckt ExactCompressor4" );
 		    for ( kk = 1; kk <= 3; kk++ )
 		      fprintf( pFile, " x%d=s%d_%d_%d", kk, nStage, k++, i );
@@ -1333,8 +1364,8 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 		    fprintf( pFile, " cout=c%d_%d_%d", nStage, nCout++, i );
 		    fprintf( pFile, "\n" );
 		  }
-		for ( j = 0; j < nHA; j++ )
-		  {
+		if ( nHA )
+		  { /* Place a full-adder including cin and cout*/
 		    fprintf( pFile, ".subckt FA" );
 		    fprintf( pFile, " a=s%d_%d_%d", nStage, k++, i );
 		    fprintf( pFile, " b=s%d_%d_%d", nStage, k++, i );
@@ -1345,22 +1376,29 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
 		    fprintf( pFile, "\n" );
 		  }
 		assert( nCin == nCinUsed );
+		/* Check all cins were used */
 		while ( k < vLength[i] )
-		  {
+		  { /* If some elements remain, pass them directly to the next stage */
 		    fprintf( pFile, ".names s%d_%d_%d s%d_%d_%d\n", nStage, k++, i, nStage+1, vLengthNew[i]++, i ); 
 		    fprintf( pFile, "1 1\n" );
 		  }
 		assert( vLengthNew[i] <= nVarsTmp );
+		/* The number of elements must be less than the defined maximum number */
 		nCin = nCout;
 		nCout = 0;
+		/* Assign nCout to nCin and clear nCout before starting the next column. */
 	      }
 	  }
 	ABC_FREE( vLength );
 	vLength = vLengthNew;
+	/* Replace vLength by vLengthNew before starging the next stage */
 	nVarsTmp = nVarsTmp/2 + nVarsTmp%2;
+	/* The maximum number of elements in each column is updated */
 	nStage++;
       }
-    // RCA
+
+    
+    // Place Ripple Carry Adder
     fprintf( pFile, ".subckt ADD%d", 2*nVars );
     for ( i = 0; i < 2*nVars; i++ )
       if ( vLength[i] > 0 )
@@ -1372,18 +1410,31 @@ void Abc_WriteMulti4to2Compressor( FILE * pFile, int nVars )
       fprintf( pFile, " s%0*d=s%d_%d_%d", nDigits2, i, nStage+1, 0, i );
     fprintf( pFile, "\n" );
     nStage++;
+
+
+    // Assign values to the outputs
     for ( i = 0; i < 2 * nVars; i++ )
       {
 	fprintf( pFile, ".names s%d_%d_%d", nStage, 0, i ); 
         fprintf( pFile, " m%0*d\n", nDigits2, i );
 	fprintf( pFile, "1 1\n" );
       }
+
+    
+    // End module
     fprintf( pFile, ".end\n" ); 
     fprintf( pFile, "\n" );
+
+
+    // Declare submodules
     Abc_Write4to2Compressor( pFile );
+    /* Declare approximate 4-to-2-compressor */
     Abc_WriteExactCompressors( pFile );
+    /* Declare exact compressors (5-to-3 and 4-to-3) */
     Abc_WriteHalfAdder( pFile );
-    Abc_WriteAdder( pFile, nVars * 2 ); // This also generates FA
+    /* Declare half adder */
+    Abc_WriteAdder( pFile, nVars * 2 );
+    /* Declare full adder and ripple carry adder */
   }
 void Abc_GenMulti4to2Compressor( char * pFileName, int nVars )
 {
