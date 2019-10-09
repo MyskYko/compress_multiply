@@ -1199,9 +1199,8 @@ void Abc_WriteExactCompressors( FILE * pFile )
   fprintf( pFile, ".model ExactCompressor5\n" );
   fprintf( pFile, ".inputs x1 x2 x3 x4 cin\n" ); 
   fprintf( pFile, ".outputs s carry cout\n" );
-  fprintf( pFile, ".names c\n" );   
   fprintf( pFile, ".subckt FA a=x1 b=x2 cin=x3 s=s_ cout=cout\n" ); 
-  fprintf( pFile, ".subckt FA a=s_ b=x4 cin=c s=s cout=carry\n" ); 
+  fprintf( pFile, ".subckt FA a=s_ b=x4 cin=cin s=s cout=carry\n" ); 
   fprintf( pFile, ".end\n" ); 
   fprintf( pFile, "\n" ); 
   fprintf( pFile, ".model ExactCompressor4\n" );
