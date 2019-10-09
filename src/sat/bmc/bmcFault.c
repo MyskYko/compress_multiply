@@ -1121,6 +1121,87 @@ int Gia_ManFaultAddOne( Gia_Man_t * pM, Cnf_Dat_t * pCnf, sat_solver * pSat, Vec
     return 1;
 }
 
+/**Function*************************************************************
+
+  Synopsis    []
+
+  Description [From the given test pattern, create list of faults]
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+int Gia_ManCreateFaultList( Gia_Man_t * pM, Vec_Int_t * vTestPat, int nFuncVars, Vec_Int_t * vFaults )
+{
+  printf( "begin my func\n" );
+  Gia_Man_t * pC;//, * pTemp;
+  Cnf_Dat_t * pCnf;
+  Gia_Obj_t * pObj;
+  int i, Lit, status;
+  sat_solver * pSat;
+  Vec_Int_t * vLits;
+  // derive the cofactor
+  pC = Gia_ManFaultCofactor( pM, vTestPat );
+  // derive new CNF
+  pCnf = Cnf_DeriveGiaRemapped( pC );
+  // sat instance
+  pSat = sat_solver_new();
+  sat_solver_setnvars( pSat, pCnf->nVars );
+  //sat_solver_set_runtime_limit( pSat, pPars->nTimeOut ? pPars->nTimeOut * CLOCKS_PER_SEC + Abc_Clock(): 0 );
+  // add timeframe clauses
+  for ( i = 0; i < pCnf->nClauses; i++ )
+    if ( !sat_solver_addclause( pSat, pCnf->pClauses[i], pCnf->pClauses[i+1] ) )
+      assert( 0 );
+  // add one large OR clause
+  vLits = Vec_IntAlloc( 1 );
+  Gia_ManForEachCo( pC, pObj, i )
+    Vec_IntPush( vLits, Abc_Var2Lit(pCnf->pVarNums[Gia_ObjId(pC, pObj)], 0) );
+  sat_solver_addclause( pSat, Vec_IntArray(vLits), Vec_IntArray(vLits) + Vec_IntSize(vLits) );
+  // assume single fault
+  Vec_IntClear( vLits );
+  Gia_ManForEachPi( pC, pObj, i )
+    if ( i >= nFuncVars )
+      Vec_IntPush( vLits, pCnf->pVarNums[Gia_ObjId(pC, pObj)] );
+  Cnf_AddCardinConstr( pSat, vLits );
+  // find all detectable faults
+  while(1)
+    {
+      // run sat
+      status = sat_solver_solve( pSat, NULL, NULL, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0 );
+      if ( status == l_Undef )
+	{
+	  printf( "Timeout\n" );
+	  return 0;
+	}
+      if ( status == l_False )
+	{
+	  printf( "UNSAT\n" );
+	  break;
+	}
+      assert( status == l_True );
+      // collect SAT assignment
+      Gia_ManForEachPi( pC, pObj, i )
+	if ( i >= nFuncVars )
+	  if ( sat_solver_var_value(pSat, pCnf->pVarNums[Gia_ObjId(pC, pObj)]) )
+	    {
+	      printf("%d,", i - nFuncVars);
+	      Vec_IntPush( vFaults, i - nFuncVars );
+	      //remove the detected fault from candidates
+	      Lit = Abc_Var2Lit( pCnf->pVarNums[Gia_ObjId(pC, pObj)], 1 );
+	      if( !sat_solver_addclause( pSat, &Lit, &Lit+1 ) ) {
+		printf("\n");
+		printf("all detectable faults have been listed\n");
+		Gia_ManStop( pC );
+		Vec_IntFree( vLits );
+		return 0;
+	      }
+	    }
+    }
+  Gia_ManStop( pC );
+  Vec_IntFree( vLits );
+  return -1;
+}
 
 /**Function*************************************************************
 
@@ -1554,14 +1635,16 @@ int Gia_ManFaultPrepare( Gia_Man_t * p, Gia_Man_t * pG, Bmc_ParFf_t * pPars, int
 void Gia_ManFaultTest( Gia_Man_t * p, Gia_Man_t * pG, Bmc_ParFf_t * pPars )
 {
     int nIterMax = 1000000, nVars, nPars;
-    int i, Iter, Iter2, status, nFuncVars = -1;
+    int i, j, Iter, Iter2, status, nFuncVars = -1;
     abctime clk, clkSat = 0, clkTotal = Abc_Clock();
     Vec_Int_t * vLits, * vMap = NULL, * vTests, * vPars = NULL;
     Gia_Man_t * pM;
     Gia_Obj_t * pObj;
     Cnf_Dat_t * pCnf;
     sat_solver * pSat = NULL;
-
+    Vec_Int_t * vPreviousFaults;
+    Vec_Ptr_t * vFaultList = Vec_PtrAlloc( 1 );
+    
     if ( pPars->Algo == 0 && Gia_FormStrCount( pPars->pFormStr, &nVars, &nPars ) )
         return;
 
@@ -1614,7 +1697,7 @@ void Gia_ManFaultTest( Gia_Man_t * p, Gia_Man_t * pG, Bmc_ParFf_t * pPars )
         vTests = Vec_IntAlloc( 10000 );
     if ( vTests == NULL )
         return;
-
+    
     // select algorithm
     vMap = Vec_IntAlloc( 0 );
     if ( pPars->Algo == 2 )
@@ -1623,7 +1706,7 @@ void Gia_ManFaultTest( Gia_Man_t * p, Gia_Man_t * pG, Bmc_ParFf_t * pPars )
         Vec_IntFill( vMap,     Gia_ManAndNum(p), 1 );
     else if ( pPars->Algo == 4 )
         Vec_IntFill( vMap, 4 * Gia_ManAndNum(p), 1 );
-
+    
     // prepare SAT solver
     vLits = Vec_IntAlloc( Gia_ManCoNum(p) );
 
@@ -1700,6 +1783,21 @@ void Gia_ManFaultTest( Gia_Man_t * p, Gia_Man_t * pG, Bmc_ParFf_t * pPars )
             goto finish_all;
         }
         Vec_IntAppend( vTests, vLits );
+	// create list of detectable faults
+	Vec_Int_t * vFaults = Vec_IntAlloc( 1 );
+	Gia_ManCreateFaultList( pM, vLits, nFuncVars, vFaults );
+	// check if there exists duplicated fautls in test patterns
+	Vec_PtrForEachEntry( Vec_Int_t *, vFaultList, vPreviousFaults, i )
+	  {
+	    int faultId;
+	    Vec_IntForEachEntry( vFaults, faultId, j )
+	      {
+		int index = Vec_IntFind( vPreviousFaults, faultId );
+		if( index != -1 )
+		  Vec_IntDrop( vPreviousFaults, index );
+	      }
+	  }
+	Vec_PtrPush( vFaultList, vFaults );
         // add constraint
         if ( !Gia_ManFaultAddOne( pM, pCnf, pSat, vLits, nFuncVars, 0, pM ) )
         {
@@ -1716,6 +1814,26 @@ finish:
 //        Gia_ManPrintResults( p, pSat, Iter, Abc_Clock() - clkTotal );
     // cleanup
     Abc_PrintTime( 1, "Testing runtime", Abc_Clock() - clkTotal );
+
+    // remove redundant test patterns
+    Vec_Int_t * vTestsNew = Vec_IntAlloc( Vec_IntSize( vTests ) );
+    int nRemoved = 0;
+    Vec_PtrForEachEntry( Vec_Int_t *, vFaultList, vPreviousFaults, i )
+      if( Vec_IntSize( vPreviousFaults ) != 0 )
+	{
+	  for( j = 0; j < nFuncVars; j++ )
+	    {
+	      Vec_IntPush( vTestsNew, Vec_IntEntry( vTests, i * nFuncVars + j ) );
+	      printf("%d", Vec_IntEntry( vTests, i * nFuncVars + j ));
+	    }
+	  printf("\n");
+	}
+      else {
+	nRemoved++;
+	printf("pat %d is redundant\n", i);
+      }    Vec_IntFree( vTests );
+    vTests = vTestsNew;
+    
     // dump the test suite
     if ( pPars->fDump )
     {
@@ -1727,7 +1845,7 @@ finish:
         }
         else
         {
-            Gia_ManDumpTests( vTests, Iter, pFileName );
+            Gia_ManDumpTests( vTests, Iter - nRemoved, pFileName );
             printf( "Dumping %d test patterns into file \"%s\".\n", Vec_IntSize(vTests) / nFuncVars, pFileName );
         }
     }
